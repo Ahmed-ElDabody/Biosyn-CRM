@@ -1,0 +1,23 @@
+@import "tailwindcss";
+
+@theme {
+  --color-biosyn-navy: #16284b;
+  --color-biosyn-deep: #1e3a66;
+  --color-biosyn-teal: #0e7c7b;
+  --color-biosyn-mint: #1fb6a6;
+  --color-biosyn-gold: #c9a14a;
+  --color-biosyn-coral: #e2574c;
+  --color-biosyn-amber: #e8923a;
+  --color-biosyn-paper: #f5f3ec;
+}
+
+:root {
+  --background: var(--color-biosyn-paper);
+  --foreground: #16284b;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
