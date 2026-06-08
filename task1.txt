@@ -1,0 +1,13 @@
+Great summary. Now start Milestone 1 from Section 13 only. Build foundations only - no UI yet. Work through these five steps in order and explain briefly what you are doing at each one.
+
+Step 1: Scaffold a monorepo in the current folder. Create three sub-folders: backend (NestJS + TypeScript), web (Next.js + TypeScript + Tailwind), and mobile (React Native + Expo). Initialize each with its standard CLI, install base dependencies, and add a root README.md. Add a .gitignore and a docker-compose.yml at the root that spins up PostgreSQL 16 with the PostGIS extension and Redis. Initialize a git repo at the root.
+
+Step 2: In backend, set up Prisma and create the full database schema exactly as defined in Section 3 of the spec. Every table, every column, every enum, every relation. Use UUID primary keys and add created_at, updated_at, deleted_at where the spec says so. Generate the migration file but do NOT run it against a real DB yet.
+
+Step 3: Write a TypeScript import script in backend/scripts/import-bricks.ts that reads Updated_IMS_148_Bricks.xlsx using the xlsx library. Parse the Arabic+English brick names and their governorate/area. Populate the bricks table. After the import, log the final row count and assert it equals 148.
+
+Step 4: Write backend/scripts/import-employees.ts that reads Employees.xlsx (34 rows, columns: SR, Employee, Region, Role, Direct Manager). Populate the users table. Resolve each Direct Manager name to a user id. Roles: MR equals rep, and managers above them.
+
+Step 5: Write backend/scripts/import-territories.ts that reads Standard_Structure.xlsx (708 rows, columns: Territory_NAME_148_Max and BRICK_NAME_700). Link each sub-brick to its parent IMS territory. Add a sub_bricks table to the schema if needed.
+
+When all five steps are done, STOP and report the folder tree, the migration file path, the three import-script paths, and the expected counts. Wait for my approval before Milestone 2.

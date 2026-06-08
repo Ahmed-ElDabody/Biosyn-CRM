@@ -55,6 +55,80 @@ export async function apiGet<T = unknown>(path: string): Promise<T> {
   return res.json();
 }
 
+export type DetailAidStatus = "none" | "processing" | "ready" | "failed";
+
+export interface Product {
+  id: string;
+  name: string;
+  totalSlides: number;
+  detailAidFileUrl: string | null;
+  active: boolean;
+  detailAidStatus: DetailAidStatus;
+  detailAidPageCount: number | null;
+  detailAidError: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DetailAidPageImage {
+  page: number;
+  width: number;
+  height: number;
+  url: string;
+}
+
+/** JSON-body mutation (POST/PATCH/DELETE) against the Biosyn API. */
+export async function apiSend<T = unknown>(
+  path: string,
+  method: "POST" | "PATCH" | "DELETE",
+  body?: unknown,
+): Promise<T> {
+  const token = await readCookie(ACCESS_COOKIE);
+  const res = await fetch(`${API_BASE}${path}`, {
+    method,
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
+    },
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+    cache: "no-store",
+  });
+  if (res.status === 401) redirect("/login");
+  if (!res.ok) {
+    let detail: unknown = null;
+    try {
+      detail = await res.json();
+    } catch {
+      /* not JSON */
+    }
+    throw new ApiError(res.status, `${method} ${path} failed: ${res.status}`, detail);
+  }
+  if (res.status === 204) return undefined as T;
+  return res.json();
+}
+
+/** Multipart upload against the Biosyn API (lets fetch set the boundary). */
+export async function apiUpload<T = unknown>(path: string, form: FormData): Promise<T> {
+  const token = await readCookie(ACCESS_COOKIE);
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: "POST",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: form,
+    cache: "no-store",
+  });
+  if (res.status === 401) redirect("/login");
+  if (!res.ok) {
+    let detail: unknown = null;
+    try {
+      detail = await res.json();
+    } catch {
+      /* not JSON */
+    }
+    throw new ApiError(res.status, `POST ${path} failed: ${res.status}`, detail);
+  }
+  return res.json();
+}
+
 export async function getCurrentUser(): Promise<AuthUser | null> {
   const raw = await readCookie(USER_COOKIE);
   if (!raw) return null;
