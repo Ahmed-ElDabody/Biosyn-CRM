@@ -57,24 +57,41 @@ export async function apiGet<T = unknown>(path: string): Promise<T> {
 
 export type DetailAidStatus = "none" | "processing" | "ready" | "failed";
 
-export interface Product {
+/** An uploaded deck (PDF) shared across products via page ranges. */
+export interface DetailAid {
   id: string;
   name: string;
-  totalSlides: number;
-  detailAidFileUrl: string | null;
-  active: boolean;
-  detailAidStatus: DetailAidStatus;
-  detailAidPageCount: number | null;
-  detailAidError: string | null;
+  fileUrl: string | null;
+  status: DetailAidStatus;
+  pageCount: number | null;
+  error: string | null;
   createdAt: string;
   updatedAt: string;
 }
 
+export interface Product {
+  id: string;
+  name: string;
+  totalSlides: number;
+  active: boolean;
+  detailAidId: string | null;
+  pageStart: number | null;
+  pageEnd: number | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** A rendered page of a deck (absolute page number within the deck). */
 export interface DetailAidPageImage {
   page: number;
   width: number;
   height: number;
   url: string;
+}
+
+/** A page of a product's slice: local 1..k `page` plus its absolute `sourcePage`. */
+export interface ProductPageImage extends DetailAidPageImage {
+  sourcePage: number;
 }
 
 /** JSON-body mutation (POST/PATCH/DELETE) against the Biosyn API. */

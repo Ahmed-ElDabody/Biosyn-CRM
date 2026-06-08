@@ -1,33 +1,18 @@
 import {
   BadRequestException,
   Injectable,
-  Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { DetailAidRasterizerService } from '../detail-aid/detail-aid-rasterizer.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 
-const ALLOWED_DETAIL_AID_MIME = new Set([
-  'application/pdf',
-  'application/vnd.openxmlformats-officedocument.presentationml.presentation', // .pptx
-  'application/vnd.ms-powerpoint', // .ppt
-  'image/png',
-  'image/jpeg',
-]);
-
-const PDF_MIME = 'application/pdf';
-
 @Injectable()
 export class ProductsService {
-  private readonly logger = new Logger(ProductsService.name);
-
   constructor(
     private prisma: PrismaService,
     private storage: StorageService,
-    private rasterizer: DetailAidRasterizerService,
   ) {}
 
   list() {
@@ -40,134 +25,59 @@ export class ProductsService {
     return p;
   }
 
-  create(dto: CreateProductDto) {
+  async create(dto: CreateProductDto) {
+    await this.validateRange(
+      dto.detailAidId ?? null,
+      dto.pageStart ?? null,
+      dto.pageEnd ?? null,
+    );
     return this.prisma.product.create({
       data: {
         name: dto.name,
         totalSlides: dto.totalSlides,
         active: dto.active ?? true,
+        detailAidId: dto.detailAidId ?? null,
+        pageStart: dto.pageStart ?? null,
+        pageEnd: dto.pageEnd ?? null,
       },
     });
   }
 
   async update(id: string, dto: UpdateProductDto) {
-    await this.getById(id);
+    const existing = await this.getById(id);
+    // Resolve effective range from the patch layered over current values.
+    const detailAidId =
+      dto.detailAidId !== undefined ? dto.detailAidId : existing.detailAidId;
+    const pageStart =
+      dto.pageStart !== undefined ? dto.pageStart : existing.pageStart;
+    const pageEnd = dto.pageEnd !== undefined ? dto.pageEnd : existing.pageEnd;
+    await this.validateRange(detailAidId, pageStart, pageEnd);
     return this.prisma.product.update({ where: { id }, data: dto });
   }
 
   async delete(id: string) {
-    const product = await this.getById(id);
-    // Remove rendered page images from S3 (the DB rows cascade with the product).
-    await this.deletePageObjects(id);
-    if (product.detailAidFileUrl) {
-      const key = this.storage.parseKey(product.detailAidFileUrl);
-      if (key) {
-        try {
-          await this.storage.delete(key);
-        } catch {
-          /* original may already be gone — ignore */
-        }
-      }
-    }
+    await this.getById(id);
     return this.prisma.product.delete({ where: { id } });
   }
 
-  async uploadDetailAid(
-    id: string,
-    file: {
-      buffer: Buffer;
-      originalname: string;
-      mimetype: string;
-      size: number;
-    },
-  ) {
-    const product = await this.getById(id);
-    if (!ALLOWED_DETAIL_AID_MIME.has(file.mimetype)) {
-      throw new BadRequestException(
-        `Unsupported file type: ${file.mimetype}. Allowed: PDF, PPT(X), PNG, JPEG.`,
-      );
-    }
-
-    // Drop any previously rendered pages (S3 objects + DB rows) and the old original.
-    await this.clearDetailAidArtifacts(product.id, product.detailAidFileUrl);
-
-    const key = this.storage.buildKey(`detail-aids/${id}`, file.originalname);
-    const uri = await this.storage.upload(key, file.buffer, file.mimetype);
-
-    const isPdf = file.mimetype === PDF_MIME;
-    const updated = await this.prisma.product.update({
-      where: { id },
-      data: {
-        detailAidFileUrl: uri,
-        // Only PDFs are pre-split into page images; everything else is stored raw.
-        detailAidStatus: isPdf ? 'processing' : 'none',
-        detailAidPageCount: null,
-        detailAidError: null,
-      },
-    });
-
-    if (isPdf) {
-      // Fire-and-forget: render in the background so the upload returns promptly.
-      // The admin UI polls detailAidStatus until it flips to ready/failed.
-      void this.renderPages(id, file.buffer);
-    }
-
-    return updated;
-  }
-
-  /** Re-run rasterization from the already-stored original PDF (recovery / re-render). */
-  async reprocessDetailAid(id: string) {
-    const product = await this.getById(id);
-    if (!product.detailAidFileUrl) {
-      throw new BadRequestException(
-        'Product has no detail aid file to reprocess.',
-      );
-    }
-    const key = this.storage.parseKey(product.detailAidFileUrl);
-    if (!key) {
-      throw new BadRequestException(
-        'Detail aid file is not on the configured bucket.',
-      );
-    }
-    if (!key.toLowerCase().endsWith('.pdf')) {
-      throw new BadRequestException('Only PDF detail aids can be rasterized.');
-    }
-
-    await this.deletePageObjects(id);
-    await this.prisma.detailAidPage.deleteMany({ where: { productId: id } });
-    const updated = await this.prisma.product.update({
-      where: { id },
-      data: {
-        detailAidStatus: 'processing',
-        detailAidPageCount: null,
-        detailAidError: null,
-      },
-    });
-
-    const pdf = await this.storage.download(key);
-    void this.renderPages(id, pdf);
-    return updated;
-  }
-
+  /** Page metadata for the product's slice, renumbered to a local 1..k deck. */
   async listPages(id: string) {
-    await this.getById(id);
-    return this.prisma.detailAidPage.findMany({
-      where: { productId: id },
-      orderBy: { page: 'asc' },
-      select: { page: true, width: true, height: true },
-    });
+    const { pages } = await this.resolveSlice(id);
+    return pages.map((p, i) => ({
+      page: i + 1,
+      sourcePage: p.page,
+      width: p.width,
+      height: p.height,
+    }));
   }
 
-  /** Presigned URLs for every rendered page, in order. */
+  /** Presigned image URLs for the product's slice, renumbered to a local 1..k deck. */
   async presignPages(id: string) {
-    await this.getById(id);
-    const pages = await this.prisma.detailAidPage.findMany({
-      where: { productId: id },
-      orderBy: { page: 'asc' },
-    });
+    const { pages } = await this.resolveSlice(id);
     return Promise.all(
-      pages.map(async (p) => ({
-        page: p.page,
+      pages.map(async (p, i) => ({
+        page: i + 1,
+        sourcePage: p.page,
         width: p.width,
         height: p.height,
         url: await this.storage.getPresignedUrl(p.imageKey),
@@ -175,98 +85,72 @@ export class ProductsService {
     );
   }
 
-  async presignDetailAid(id: string) {
-    const p = await this.getById(id);
-    if (!p.detailAidFileUrl)
-      throw new NotFoundException('Product has no detail aid file');
-    const key = this.storage.parseKey(p.detailAidFileUrl);
-    if (!key)
-      throw new NotFoundException(
-        'Detail aid file is not on the configured bucket',
-      );
-    const url = await this.storage.getPresignedUrl(key);
-    return { url };
-  }
-
   // ---------- internals ----------
 
-  /** Render the PDF to per-page WebP, store them, and flip status to ready/failed. */
-  private async renderPages(productId: string, pdf: Buffer) {
-    try {
-      const rendered = await this.rasterizer.rasterize(pdf);
-      for (const r of rendered) {
-        const key = `detail-aids/${productId}/pages/${r.page}.webp`;
-        await this.storage.upload(key, r.image, 'image/webp');
-      }
-      await this.prisma.$transaction([
-        this.prisma.detailAidPage.deleteMany({ where: { productId } }),
-        this.prisma.detailAidPage.createMany({
-          data: rendered.map((r) => ({
-            productId,
-            page: r.page,
-            imageKey: `detail-aids/${productId}/pages/${r.page}.webp`,
-            width: r.width,
-            height: r.height,
-          })),
-        }),
-        this.prisma.product.update({
-          where: { id: productId },
-          data: {
-            detailAidStatus: 'ready',
-            detailAidPageCount: rendered.length,
-          },
-        }),
-      ]);
-      this.logger.log(
-        `Detail aid for product ${productId} ready (${rendered.length} pages).`,
-      );
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      this.logger.error(
-        `Detail aid render failed for product ${productId}: ${message}`,
-      );
-      await this.prisma.product
-        .update({
-          where: { id: productId },
-          data: { detailAidStatus: 'failed', detailAidError: message },
-        })
-        .catch(() => {
-          /* product may have been deleted mid-render — ignore */
-        });
+  /** The ordered DetailAidPage rows within a product's [pageStart..pageEnd] range. */
+  private async resolveSlice(id: string) {
+    const product = await this.getById(id);
+    if (
+      product.detailAidId == null ||
+      product.pageStart == null ||
+      product.pageEnd == null
+    ) {
+      return {
+        product,
+        pages: [] as Awaited<ReturnType<typeof this.findPages>>,
+      };
     }
-  }
-
-  /** Delete rendered page images from S3 and their DB rows for a product. */
-  private async clearDetailAidArtifacts(
-    productId: string,
-    oldFileUrl: string | null,
-  ) {
-    await this.deletePageObjects(productId);
-    await this.prisma.detailAidPage.deleteMany({ where: { productId } });
-    if (oldFileUrl) {
-      const oldKey = this.storage.parseKey(oldFileUrl);
-      if (oldKey) {
-        try {
-          await this.storage.delete(oldKey);
-        } catch {
-          /* old original may already be gone — ignore */
-        }
-      }
-    }
-  }
-
-  /** Remove the S3 objects backing a product's rendered pages (leaves DB rows untouched). */
-  private async deletePageObjects(productId: string) {
-    const pages = await this.prisma.detailAidPage.findMany({
-      where: { productId },
-      select: { imageKey: true },
-    });
-    await Promise.all(
-      pages.map((p) =>
-        this.storage.delete(p.imageKey).catch(() => {
-          /* page object may already be gone — ignore */
-        }),
-      ),
+    const pages = await this.findPages(
+      product.detailAidId,
+      product.pageStart,
+      product.pageEnd,
     );
+    return { product, pages };
+  }
+
+  private findPages(detailAidId: string, start: number, end: number) {
+    return this.prisma.detailAidPage.findMany({
+      where: { detailAidId, page: { gte: start, lte: end } },
+      orderBy: { page: 'asc' },
+    });
+  }
+
+  /**
+   * A product's detail-aid mapping is all-or-nothing: either no aid assigned, or
+   * a valid (aid, start, end) where the range fits inside a ready deck.
+   */
+  private async validateRange(
+    detailAidId: string | null,
+    pageStart: number | null,
+    pageEnd: number | null,
+  ) {
+    const anySet = detailAidId != null || pageStart != null || pageEnd != null;
+    if (!anySet) return;
+
+    if (detailAidId == null || pageStart == null || pageEnd == null) {
+      throw new BadRequestException(
+        'detailAidId, pageStart and pageEnd must be provided together.',
+      );
+    }
+    if (pageStart < 1 || pageEnd < 1 || pageStart > pageEnd) {
+      throw new BadRequestException(
+        'Invalid page range: require 1 <= pageStart <= pageEnd.',
+      );
+    }
+
+    const aid = await this.prisma.detailAid.findUnique({
+      where: { id: detailAidId },
+    });
+    if (!aid) throw new BadRequestException('Detail aid not found.');
+    if (aid.status !== 'ready' || aid.pageCount == null) {
+      throw new BadRequestException(
+        'Detail aid is not ready (still rendering or failed).',
+      );
+    }
+    if (pageEnd > aid.pageCount) {
+      throw new BadRequestException(
+        `pageEnd ${pageEnd} exceeds the deck's page count (${aid.pageCount}).`,
+      );
+    }
   }
 }

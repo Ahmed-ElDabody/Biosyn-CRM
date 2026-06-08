@@ -240,42 +240,62 @@ model RepDoctorList {
 
 // ---------- products / detail aids ----------
 
-model Product {
-  id               String  @id @default(uuid()) @db.Uuid
-  name             String
-  totalSlides      Int     @map("total_slides")
-  detailAidFileUrl String? @map("detail_aid_file_url")
-  active           Boolean @default(true)
+// An uploaded detail-aid deck (PDF) and its pre-split per-page WebP renders.
+// One deck can be shared by several products, each mapped to a page range.
+model DetailAid {
+  id        String          @id @default(uuid()) @db.Uuid
+  name      String
+  fileUrl   String?         @map("file_url")
+  status    DetailAidStatus @default(none)
+  pageCount Int?            @map("page_count")
+  error     String?
 
-  // Pre-split per-page rendering of the Detail Aid (PDF -> WebP images at upload time).
-  detailAidStatus    DetailAidStatus @default(none) @map("detail_aid_status")
-  detailAidPageCount Int?            @map("detail_aid_page_count")
-  detailAidError     String?         @map("detail_aid_error")
-
-  sessions Session[]
   pages    DetailAidPage[]
+  products Product[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  @@map("products")
+  @@map("detail_aids")
 }
 
 model DetailAidPage {
-  id        String @id @default(uuid()) @db.Uuid
-  productId String @map("product_id") @db.Uuid
-  page      Int // 1-based page number
-  imageKey  String @map("image_key") // S3 key of the rendered WebP
-  width     Int
-  height    Int
+  id          String @id @default(uuid()) @db.Uuid
+  detailAidId String @map("detail_aid_id") @db.Uuid
+  page        Int // 1-based page number within the deck
+  imageKey    String @map("image_key") // S3 key of the rendered WebP
+  width       Int
+  height      Int
 
-  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  detailAid DetailAid @relation(fields: [detailAidId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now()) @map("created_at")
 
-  @@unique([productId, page])
-  @@index([productId])
+  @@unique([detailAidId, page])
+  @@index([detailAidId])
   @@map("detail_aid_pages")
+}
+
+model Product {
+  id          String  @id @default(uuid()) @db.Uuid
+  name        String
+  totalSlides Int     @map("total_slides")
+  active      Boolean @default(true)
+
+  // A product details a contiguous page range [pageStart..pageEnd] (1-based,
+  // inclusive) of a shared DetailAid deck. Null until an aid+range is assigned.
+  detailAidId String?    @map("detail_aid_id") @db.Uuid
+  detailAid   DetailAid? @relation(fields: [detailAidId], references: [id], onDelete: SetNull)
+  pageStart   Int?       @map("page_start")
+  pageEnd     Int?       @map("page_end")
+
+  sessions Session[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([detailAidId])
+  @@map("products")
 }
 
 // ---------- planning ----------

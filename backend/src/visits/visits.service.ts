@@ -79,7 +79,9 @@ export class VisitsService {
     // server math uses server stamps but we capture client too for drift analysis.
     const endedAtServer = dto.endedAtClient ? now : null;
     const startedAtClient = new Date(dto.startedAtClient);
-    const endedAtClient = dto.endedAtClient ? new Date(dto.endedAtClient) : null;
+    const endedAtClient = dto.endedAtClient
+      ? new Date(dto.endedAtClient)
+      : null;
 
     // 5. Previous visit (for short-interval flag)
     const prev = await this.prisma.visit.findFirst({
@@ -87,6 +89,33 @@ export class VisitsService {
       orderBy: { endedAtServer: 'desc' },
       select: { endedAtServer: true },
     });
+
+    // 5b. Anti-gaming: a session's slide numbers must fit within the product's
+    // page range (sessions use a local 1..k numbering of the product's slice).
+    const productIds = [...new Set(dto.sessions.map((s) => s.productId))];
+    const sessionProducts = await this.prisma.product.findMany({
+      where: { id: { in: productIds } },
+      select: { id: true, totalSlides: true, pageStart: true, pageEnd: true },
+    });
+    const productById = new Map(sessionProducts.map((p) => [p.id, p]));
+    for (const s of dto.sessions) {
+      const p = productById.get(s.productId);
+      if (!p) {
+        throw new BadRequestException(
+          `Unknown product ${s.productId} in session`,
+        );
+      }
+      // Range length when an aid is mapped; otherwise fall back to totalSlides.
+      const rangeLength =
+        p.pageStart != null && p.pageEnd != null
+          ? p.pageEnd - p.pageStart + 1
+          : p.totalSlides;
+      if (s.startSlide > rangeLength || s.maxSlide > rangeLength) {
+        throw new BadRequestException(
+          `Session slide ${Math.max(s.startSlide, s.maxSlide)} exceeds product page range (${rangeLength}).`,
+        );
+      }
+    }
 
     // 6. Validate
     const validationInput: VisitValidationInput = {
@@ -125,8 +154,8 @@ export class VisitsService {
         gpsLng: dto.gpsLng,
         geofenceOk: result.geofenceOk,
         isValid: result.isValid,
-        validityReasons: result.validityReasons as unknown as Prisma.InputJsonValue,
-        flags: result.flags as unknown as Prisma.InputJsonValue,
+        validityReasons: result.validityReasons,
+        flags: result.flags,
         syncedAt: now,
         sessions: {
           create: dto.sessions.map((s) => ({

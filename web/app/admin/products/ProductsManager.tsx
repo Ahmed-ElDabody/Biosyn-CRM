@@ -1,53 +1,36 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, useTransition } from "react";
-import type { DetailAidPageImage, DetailAidStatus, Product } from "../../../lib/api";
+import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
+import type { DetailAid, DetailAidPageImage, Product } from "../../../lib/api";
 import {
   createProductAction,
   deleteProductAction,
-  loadPagesAction,
+  loadDeckPagesAction,
   refreshProductsAction,
-  reprocessDetailAidAction,
-  uploadDetailAidAction,
+  setProductRangeAction,
 } from "./actions";
 
-const STATUS_STYLES: Record<DetailAidStatus, { label: string; cls: string }> = {
-  none: { label: "No detail aid", cls: "bg-biosyn-navy/10 text-biosyn-navy/50" },
-  processing: { label: "Processing…", cls: "bg-biosyn-amber/15 text-biosyn-amber" },
-  ready: { label: "Ready", cls: "bg-biosyn-mint/20 text-biosyn-teal" },
-  failed: { label: "Failed", cls: "bg-biosyn-coral/15 text-biosyn-coral" },
-};
+type Notice = { kind: "ok" | "err"; text: string };
 
-function StatusBadge({ status }: { status: DetailAidStatus }) {
-  const s = STATUS_STYLES[status];
-  return (
-    <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-medium ${s.cls}`}>
-      {s.label}
-    </span>
-  );
-}
-
-export default function ProductsManager({ initialProducts }: { initialProducts: Product[] }) {
+export default function ProductsManager({
+  initialProducts,
+  detailAids,
+}: {
+  initialProducts: Product[];
+  detailAids: DetailAid[];
+}) {
   const [products, setProducts] = useState<Product[]>(initialProducts);
-  const [notice, setNotice] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+  const [notice, setNotice] = useState<Notice | null>(null);
   const [name, setName] = useState("");
   const [totalSlides, setTotalSlides] = useState("");
   const [creating, startCreate] = useTransition();
 
-  const refresh = useCallback(async () => {
-    const fresh = await refreshProductsAction();
-    setProducts(fresh);
-  }, []);
+  const readyAids = useMemo(() => detailAids.filter((a) => a.status === "ready"), [detailAids]);
+  const aidById = useMemo(() => new Map(detailAids.map((a) => [a.id, a])), [detailAids]);
 
-  // Poll while any detail aid is rendering, so the badge flips on its own.
-  const anyProcessing = products.some((p) => p.detailAidStatus === "processing");
-  useEffect(() => {
-    if (!anyProcessing) return;
-    const t = setInterval(() => {
-      void refresh();
-    }, 2500);
-    return () => clearInterval(t);
-  }, [anyProcessing, refresh]);
+  const refresh = useCallback(async () => {
+    setProducts(await refreshProductsAction());
+  }, []);
 
   const onCreate = (e: React.FormEvent) => {
     e.preventDefault();
@@ -61,7 +44,7 @@ export default function ProductsManager({ initialProducts }: { initialProducts: 
       if (res.ok) {
         setName("");
         setTotalSlides("");
-        setNotice({ kind: "ok", text: "Product created." });
+        setNotice({ kind: "ok", text: "Product created. Map it to a deck range below." });
         await refresh();
       } else {
         setNotice({ kind: "err", text: res.error });
@@ -72,10 +55,10 @@ export default function ProductsManager({ initialProducts }: { initialProducts: 
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h1 className="text-2xl font-semibold text-biosyn-navy">Products &amp; Detail Aids</h1>
+        <h1 className="text-2xl font-semibold text-biosyn-navy">Products</h1>
         <p className="mt-1 text-sm text-biosyn-navy/60">
-          Upload a PDF detail aid and it is pre-split into per-page images for the rep tablet.
-          Rendering runs in the background — the status updates automatically.
+          Map each product to a contiguous page range of a Detail Aid deck. The rep player shows
+          only that range, renumbered from 1.
         </p>
       </div>
 
@@ -91,7 +74,6 @@ export default function ProductsManager({ initialProducts }: { initialProducts: 
         </div>
       )}
 
-      {/* Create */}
       <form
         onSubmit={onCreate}
         className="flex flex-wrap items-end gap-3 rounded-lg border border-biosyn-navy/10 bg-white p-4"
@@ -101,7 +83,7 @@ export default function ProductsManager({ initialProducts }: { initialProducts: 
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="e.g. Biosyn-D3"
+            placeholder="e.g. Calmare Plus"
             className="w-56 rounded-md border border-biosyn-navy/20 px-3 py-1.5 text-sm outline-none focus:border-biosyn-teal"
           />
         </label>
@@ -111,7 +93,7 @@ export default function ProductsManager({ initialProducts }: { initialProducts: 
             value={totalSlides}
             onChange={(e) => setTotalSlides(e.target.value)}
             inputMode="numeric"
-            placeholder="e.g. 27"
+            placeholder="e.g. 9"
             className="w-28 rounded-md border border-biosyn-navy/20 px-3 py-1.5 text-sm outline-none focus:border-biosyn-teal"
           />
         </label>
@@ -124,14 +106,20 @@ export default function ProductsManager({ initialProducts }: { initialProducts: 
         </button>
       </form>
 
-      {/* List */}
+      {readyAids.length === 0 && (
+        <div className="rounded-md bg-biosyn-amber/10 px-4 py-2 text-xs text-biosyn-amber">
+          No ready decks yet. Upload a PDF under <strong>Detail Aids</strong> first, then map
+          products to its page ranges.
+        </div>
+      )}
+
       <div className="overflow-hidden rounded-lg border border-biosyn-navy/10 bg-white">
         <table className="w-full text-sm">
           <thead className="bg-biosyn-paper text-left text-xs uppercase tracking-wide text-biosyn-navy/50">
             <tr>
               <th className="px-4 py-2 font-medium">Product</th>
               <th className="px-4 py-2 font-medium">Slides</th>
-              <th className="px-4 py-2 font-medium">Detail aid</th>
+              <th className="px-4 py-2 font-medium">Detail-aid mapping</th>
               <th className="px-4 py-2 font-medium">Actions</th>
             </tr>
           </thead>
@@ -139,7 +127,7 @@ export default function ProductsManager({ initialProducts }: { initialProducts: 
             {products.length === 0 && (
               <tr>
                 <td colSpan={4} className="px-4 py-8 text-center text-biosyn-navy/50">
-                  No products yet. Add one above to upload its detail aid.
+                  No products yet. Add one above.
                 </td>
               </tr>
             )}
@@ -147,6 +135,8 @@ export default function ProductsManager({ initialProducts }: { initialProducts: 
               <ProductRow
                 key={p.id}
                 product={p}
+                readyAids={readyAids}
+                aidName={p.detailAidId ? (aidById.get(p.detailAidId)?.name ?? "(unknown deck)") : null}
                 onChanged={refresh}
                 onNotice={setNotice}
               />
@@ -160,63 +150,27 @@ export default function ProductsManager({ initialProducts }: { initialProducts: 
 
 function ProductRow({
   product,
+  readyAids,
+  aidName,
   onChanged,
   onNotice,
 }: {
   product: Product;
+  readyAids: DetailAid[];
+  aidName: string | null;
   onChanged: () => Promise<void>;
-  onNotice: (n: { kind: "ok" | "err"; text: string }) => void;
+  onNotice: (n: Notice) => void;
 }) {
   const [pending, startTransition] = useTransition();
-  const [expanded, setExpanded] = useState(false);
-  const [pages, setPages] = useState<DetailAidPageImage[] | null>(null);
-  const [loadingPages, setLoadingPages] = useState(false);
-  const fileRef = useRef<HTMLInputElement>(null);
+  const [editing, setEditing] = useState(false);
 
-  const slideMismatch =
-    product.detailAidStatus === "ready" &&
-    product.detailAidPageCount != null &&
-    product.detailAidPageCount !== product.totalSlides;
-
-  const onUpload = (e: React.FormEvent) => {
-    e.preventDefault();
-    const file = fileRef.current?.files?.[0];
-    if (!file) {
-      onNotice({ kind: "err", text: "Choose a file first." });
-      return;
-    }
-    const form = new FormData();
-    form.append("id", product.id);
-    form.append("file", file, file.name);
-    startTransition(async () => {
-      const res = await uploadDetailAidAction(form);
-      if (res.ok) {
-        if (fileRef.current) fileRef.current.value = "";
-        setPages(null);
-        setExpanded(false);
-        onNotice({ kind: "ok", text: `Uploaded for ${product.name}. Rendering started.` });
-        await onChanged();
-      } else {
-        onNotice({ kind: "err", text: res.error });
-      }
-    });
-  };
-
-  const onReprocess = () => {
-    startTransition(async () => {
-      const res = await reprocessDetailAidAction(product.id);
-      if (res.ok) {
-        setPages(null);
-        onNotice({ kind: "ok", text: `Re-rendering ${product.name}…` });
-        await onChanged();
-      } else {
-        onNotice({ kind: "err", text: res.error });
-      }
-    });
-  };
+  const mapped =
+    product.detailAidId != null && product.pageStart != null && product.pageEnd != null;
+  const rangeLen = mapped ? product.pageEnd! - product.pageStart! + 1 : null;
+  const mismatch = rangeLen != null && rangeLen !== product.totalSlides;
 
   const onDelete = () => {
-    if (!confirm(`Delete "${product.name}"? This removes its detail aid and page images.`)) return;
+    if (!confirm(`Delete "${product.name}"?`)) return;
     startTransition(async () => {
       const res = await deleteProductAction(product.id);
       if (res.ok) {
@@ -228,116 +182,260 @@ function ProductRow({
     });
   };
 
-  const onTogglePages = async () => {
-    const next = !expanded;
-    setExpanded(next);
-    if (next && pages === null) {
-      setLoadingPages(true);
-      try {
-        setPages(await loadPagesAction(product.id));
-      } catch {
-        onNotice({ kind: "err", text: "Could not load page images." });
-      } finally {
-        setLoadingPages(false);
+  const onUnassign = () => {
+    startTransition(async () => {
+      const res = await setProductRangeAction(product.id, {
+        detailAidId: null,
+        pageStart: null,
+        pageEnd: null,
+      });
+      if (res.ok) {
+        onNotice({ kind: "ok", text: `Cleared mapping for ${product.name}.` });
+        await onChanged();
+      } else {
+        onNotice({ kind: "err", text: res.error });
       }
-    }
+    });
   };
 
   return (
     <>
       <tr className="border-t border-biosyn-navy/10 align-top">
-        <td className="px-4 py-3">
-          <div className="font-medium text-biosyn-navy">{product.name}</div>
-          {!product.active && <div className="text-xs text-biosyn-navy/40">inactive</div>}
-        </td>
+        <td className="px-4 py-3 font-medium text-biosyn-navy">{product.name}</td>
         <td className="px-4 py-3 text-biosyn-navy/70">{product.totalSlides}</td>
         <td className="px-4 py-3">
-          <StatusBadge status={product.detailAidStatus} />
-          {product.detailAidStatus === "ready" && product.detailAidPageCount != null && (
-            <div className="mt-1 text-xs text-biosyn-navy/50">
-              {product.detailAidPageCount} page{product.detailAidPageCount === 1 ? "" : "s"} rendered
+          {mapped ? (
+            <div className="text-biosyn-navy/80">
+              <span className="font-medium">{aidName}</span>
+              <span className="text-biosyn-navy/50">
+                {" "}
+                · pages {product.pageStart}–{product.pageEnd} ({rangeLen} slides)
+              </span>
+              {mismatch && (
+                <div className="mt-1 text-xs text-biosyn-amber">
+                  ⚠ Range is {rangeLen} pages but total slides is {product.totalSlides}.
+                </div>
+              )}
             </div>
-          )}
-          {slideMismatch && (
-            <div className="mt-1 text-xs text-biosyn-amber">
-              ⚠ Rendered {product.detailAidPageCount} pages but slide count is {product.totalSlides}.
-            </div>
-          )}
-          {product.detailAidStatus === "failed" && product.detailAidError && (
-            <div className="mt-1 max-w-xs text-xs text-biosyn-coral">{product.detailAidError}</div>
+          ) : (
+            <span className="text-biosyn-navy/40">Unassigned</span>
           )}
         </td>
         <td className="px-4 py-3">
-          <div className="flex flex-col gap-2">
-            <form onSubmit={onUpload} className="flex items-center gap-2">
-              <input
-                ref={fileRef}
-                type="file"
-                accept=".pdf,.ppt,.pptx,.png,.jpg,.jpeg"
-                className="max-w-[180px] text-xs file:mr-2 file:rounded file:border-0 file:bg-biosyn-navy/10 file:px-2 file:py-1 file:text-biosyn-navy"
-              />
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <button
+              onClick={() => setEditing((v) => !v)}
+              className="rounded-md border border-biosyn-navy/20 px-2.5 py-1 text-biosyn-navy hover:bg-biosyn-navy/5"
+            >
+              {editing ? "Close" : mapped ? "Edit mapping" : "Map to deck"}
+            </button>
+            {mapped && (
               <button
-                type="submit"
+                onClick={onUnassign}
                 disabled={pending}
-                className="rounded-md bg-biosyn-teal px-3 py-1 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50"
+                className="rounded-md border border-biosyn-navy/20 px-2.5 py-1 text-biosyn-navy hover:bg-biosyn-navy/5 disabled:opacity-50"
               >
-                Upload
+                Unassign
               </button>
-            </form>
-            <div className="flex flex-wrap items-center gap-2 text-xs">
-              {product.detailAidStatus === "ready" && (
-                <button
-                  onClick={onTogglePages}
-                  className="rounded-md border border-biosyn-navy/20 px-2.5 py-1 text-biosyn-navy hover:bg-biosyn-navy/5"
-                >
-                  {expanded ? "Hide pages" : "View pages"}
-                </button>
-              )}
-              {(product.detailAidStatus === "ready" || product.detailAidStatus === "failed") &&
-                product.detailAidFileUrl && (
-                  <button
-                    onClick={onReprocess}
-                    disabled={pending}
-                    className="rounded-md border border-biosyn-navy/20 px-2.5 py-1 text-biosyn-navy hover:bg-biosyn-navy/5 disabled:opacity-50"
-                  >
-                    Re-render
-                  </button>
-                )}
-              <button
-                onClick={onDelete}
-                disabled={pending}
-                className="rounded-md border border-biosyn-coral/40 px-2.5 py-1 text-biosyn-coral hover:bg-biosyn-coral/10 disabled:opacity-50"
-              >
-                Delete
-              </button>
-            </div>
+            )}
+            <button
+              onClick={onDelete}
+              disabled={pending}
+              className="rounded-md border border-biosyn-coral/40 px-2.5 py-1 text-biosyn-coral hover:bg-biosyn-coral/10 disabled:opacity-50"
+            >
+              Delete
+            </button>
           </div>
         </td>
       </tr>
-      {expanded && (
+      {editing && (
         <tr className="border-t border-biosyn-navy/10 bg-biosyn-paper/50">
           <td colSpan={4} className="px-4 py-4">
-            {loadingPages && <div className="text-sm text-biosyn-navy/50">Loading pages…</div>}
-            {!loadingPages && pages && pages.length === 0 && (
-              <div className="text-sm text-biosyn-navy/50">No rendered pages.</div>
-            )}
-            {!loadingPages && pages && pages.length > 0 && (
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-6">
-                {pages.map((pg) => (
-                  <figure key={pg.page} className="overflow-hidden rounded border border-biosyn-navy/10 bg-white">
-                    {/* Presigned URLs come from a dynamic bucket host, so a plain img avoids next/image remote config. */}
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={pg.url} alt={`Page ${pg.page}`} className="block w-full" loading="lazy" />
-                    <figcaption className="px-2 py-1 text-center text-xs text-biosyn-navy/50">
-                      {pg.page}
-                    </figcaption>
-                  </figure>
-                ))}
-              </div>
-            )}
+            <RangeEditor
+              product={product}
+              readyAids={readyAids}
+              onNotice={onNotice}
+              onSaved={async () => {
+                setEditing(false);
+                await onChanged();
+              }}
+            />
           </td>
         </tr>
       )}
     </>
+  );
+}
+
+function RangeEditor({
+  product,
+  readyAids,
+  onNotice,
+  onSaved,
+}: {
+  product: Product;
+  readyAids: DetailAid[];
+  onNotice: (n: Notice) => void;
+  onSaved: () => Promise<void>;
+}) {
+  const [deckId, setDeckId] = useState<string>(product.detailAidId ?? "");
+  const [start, setStart] = useState<number | null>(product.pageStart ?? null);
+  const [end, setEnd] = useState<number | null>(product.pageEnd ?? null);
+  const [pages, setPages] = useState<DetailAidPageImage[] | null>(null);
+  const [saving, startSave] = useTransition();
+
+  // Load the selected deck's pages. setState runs only after the await, so the
+  // effect doesn't synchronously cascade renders (react-hooks/set-state-in-effect).
+  useEffect(() => {
+    if (!deckId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const result = await loadDeckPagesAction(deckId);
+        if (!cancelled) setPages(result);
+      } catch {
+        if (!cancelled) onNotice({ kind: "err", text: "Could not load deck pages." });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [deckId, onNotice]);
+
+  const onSelectDeck = (id: string) => {
+    setDeckId(id);
+    setStart(null);
+    setEnd(null);
+    setPages(null);
+  };
+
+  // Click a thumbnail: first click sets start, second sets end; third resets.
+  const onPageClick = (page: number) => {
+    if (start == null || (start != null && end != null)) {
+      setStart(page);
+      setEnd(null);
+    } else {
+      if (page < start) {
+        setEnd(start);
+        setStart(page);
+      } else {
+        setEnd(page);
+      }
+    }
+  };
+
+  const inRange = (page: number) =>
+    start != null && (end != null ? page >= start && page <= end : page === start);
+
+  const canSave = deckId !== "" && start != null && end != null && start <= end;
+
+  const onSave = () => {
+    if (!canSave) {
+      onNotice({ kind: "err", text: "Pick a deck and a start/end page." });
+      return;
+    }
+    startSave(async () => {
+      const res = await setProductRangeAction(product.id, {
+        detailAidId: deckId,
+        pageStart: start,
+        pageEnd: end,
+      });
+      if (res.ok) {
+        onNotice({
+          kind: "ok",
+          text: `Mapped ${product.name} to pages ${start}–${end} (${end! - start! + 1} slides).`,
+        });
+        await onSaved();
+      } else {
+        onNotice({ kind: "err", text: res.error });
+      }
+    });
+  };
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="flex flex-col gap-1">
+          <span className="text-xs font-medium text-biosyn-navy/70">Deck</span>
+          <select
+            value={deckId}
+            onChange={(e) => onSelectDeck(e.target.value)}
+            className="w-64 rounded-md border border-biosyn-navy/20 bg-white px-3 py-1.5 text-sm outline-none focus:border-biosyn-teal"
+          >
+            <option value="">— select a ready deck —</option>
+            {readyAids.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name} ({a.pageCount} pages)
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-xs font-medium text-biosyn-navy/70">Start page</span>
+          <input
+            value={start ?? ""}
+            onChange={(e) => setStart(e.target.value ? Number(e.target.value) : null)}
+            inputMode="numeric"
+            className="w-24 rounded-md border border-biosyn-navy/20 px-3 py-1.5 text-sm outline-none focus:border-biosyn-teal"
+          />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-xs font-medium text-biosyn-navy/70">End page</span>
+          <input
+            value={end ?? ""}
+            onChange={(e) => setEnd(e.target.value ? Number(e.target.value) : null)}
+            inputMode="numeric"
+            className="w-24 rounded-md border border-biosyn-navy/20 px-3 py-1.5 text-sm outline-none focus:border-biosyn-teal"
+          />
+        </label>
+        <div className="text-sm text-biosyn-navy/60">
+          {canSave ? `${end! - start! + 1} slides selected` : "Pick start & end"}
+        </div>
+        <button
+          onClick={onSave}
+          disabled={!canSave || saving}
+          className="rounded-md bg-biosyn-teal px-4 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+        >
+          {saving ? "Saving…" : "Save mapping"}
+        </button>
+      </div>
+
+      <p className="text-xs text-biosyn-navy/50">
+        Tip: click a page to set the start, then click another to set the end.
+      </p>
+
+      {deckId && pages === null && (
+        <div className="text-sm text-biosyn-navy/50">Loading deck pages…</div>
+      )}
+      {pages && (
+        <div className="grid grid-cols-3 gap-2 sm:grid-cols-6 lg:grid-cols-8">
+          {pages.map((pg) => {
+            const selected = inRange(pg.page);
+            return (
+              <button
+                key={pg.page}
+                type="button"
+                onClick={() => onPageClick(pg.page)}
+                className={`overflow-hidden rounded border text-left transition ${
+                  selected
+                    ? "border-biosyn-teal ring-2 ring-biosyn-teal"
+                    : "border-biosyn-navy/10 hover:border-biosyn-navy/30"
+                }`}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={pg.url} alt={`Page ${pg.page}`} className="block w-full" loading="lazy" />
+                <span
+                  className={`block px-1 py-0.5 text-center text-[11px] ${
+                    selected ? "bg-biosyn-teal text-white" : "text-biosyn-navy/50"
+                  }`}
+                >
+                  {pg.page}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
