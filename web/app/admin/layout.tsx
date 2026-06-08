@@ -9,6 +9,7 @@ const NAV_ITEMS: Array<{ href: string; label: string; group?: string }> = [
   { href: "/admin/bricks", label: "Bricks", group: "Master data" },
   { href: "/admin/sub-bricks", label: "Sub-bricks", group: "Master data" },
   { href: "/admin/doctors", label: "Doctors", group: "Master data" },
+  { href: "/admin/detail-aids", label: "Detail Aids", group: "Master data" },
   { href: "/admin/products", label: "Products", group: "Master data" },
   { href: "/admin/approvals", label: "List approvals", group: "Operations" },
   { href: "/admin/locks", label: "List locks", group: "Operations" },

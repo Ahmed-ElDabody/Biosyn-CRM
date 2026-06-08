@@ -8,6 +8,7 @@ import { AppService } from './app.service';
 import { AuditModule } from './audit/audit.module';
 import { AuthModule } from './auth/auth.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
+import { DetailAidModule } from './detail-aid/detail-aid.module';
 import { DoctorsModule } from './doctors/doctors.module';
 import { FrequencyModule } from './frequency/frequency.module';
 import { GeofenceModule } from './geofence/geofence.module';
@@ -47,6 +48,7 @@ import { VisitsModule } from './visits/visits.module';
     UsersModule,
     MasterDataModule,
     DoctorsModule,
+    DetailAidModule,
     ProductsModule,
     MeModule,
     VisitsModule,

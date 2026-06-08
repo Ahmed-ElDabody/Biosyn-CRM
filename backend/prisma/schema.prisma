@@ -1,0 +1,516 @@
+// Biosyn CRM — Prisma schema
+// Implements every table, column, enum, and relation from Section 3
+// of BIOSYN_CRM_BUILD_SPEC.md. UUID primary keys throughout.
+// created_at / updated_at on every model; deleted_at (soft delete) on
+// list-touching tables per the spec.
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [postgis]
+}
+
+// ---------- enums ----------
+
+enum Role {
+  rep
+  manager
+  admin
+}
+
+enum DoctorStatus {
+  active
+  pending
+  rejected
+}
+
+enum DoctorClass {
+  A
+  B
+  C
+}
+
+enum AccountType {
+  AM
+  PM
+}
+
+// Section 6.2 (AM list) + 6.3 (PM list). Stored as a single enum so
+// account_subtype is consistent with account_type validation at the
+// application layer.
+enum AccountSubtype {
+  // AM
+  general_hospital
+  university_hospital
+  teaching_hospital
+  health_insurance
+  fever_hospital
+  chest_hospital
+  contracts
+  medical_center
+  // PM
+  private_clinic
+  poly_clinic
+  private_hospital
+}
+
+enum WeeklyPlanStatus {
+  draft
+  submitted
+  approved
+  rejected
+  missed_deadline
+}
+
+enum RepDoctorListStatus {
+  active
+  pending_add
+  pending_delete
+}
+
+enum ListChangeType {
+  add_from_master
+  create_account
+  delete
+}
+
+enum ListChangeStage {
+  manager
+  admin
+  applied
+  rejected
+}
+
+enum LockScope {
+  global
+  per_rep
+}
+
+enum DetailAidStatus {
+  none
+  processing
+  ready
+  failed
+}
+
+// ---------- users / org ----------
+
+model User {
+  id           String  @id @default(uuid()) @db.Uuid
+  role         Role
+  nameEn       String  @map("name_en")
+  email        String  @unique
+  phone        String?
+  region       String?
+  passwordHash String? @map("password_hash")
+  managerId    String? @map("manager_id") @db.Uuid
+  manager      User?   @relation("UserManager", fields: [managerId], references: [id], onDelete: SetNull)
+  reports      User[]  @relation("UserManager")
+  isActive     Boolean @default(true) @map("is_active")
+
+  // Back-relations
+  doctorsCreated      Doctor[]            @relation("DoctorCreator")
+  repList             RepDoctorList[]
+  weeklyPlans         WeeklyPlan[]        @relation("PlanRep")
+  weeklyPlansApproved WeeklyPlan[]        @relation("PlanApprover")
+  visits              Visit[]
+  listRequests        ListChangeRequest[] @relation("ListReqRep")
+  listManagerActions  ListChangeRequest[] @relation("ListReqManager")
+  listAdminActions    ListChangeRequest[] @relation("ListReqAdmin")
+  listLocksOwned      ListLock[]          @relation("LockRep")
+  listLocksGranted    ListLock[]          @relation("LockGrantedBy")
+  kpiSnapshots        KpiSnapshot[]
+  notifications       Notification[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([managerId])
+  @@index([role])
+  @@map("users")
+}
+
+// ---------- geo / territories ----------
+
+model Governorate {
+  id     String  @id @default(uuid()) @db.Uuid
+  nameEn String  @unique @map("name_en")
+  nameAr String? @map("name_ar")
+
+  bricks  Brick[]
+  doctors Doctor[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("governorates")
+}
+
+model Brick {
+  id            String       @id @default(uuid()) @db.Uuid
+  code          String?      @unique
+  nameEn        String       @map("name_en")
+  nameAr        String?      @map("name_ar")
+  area          String? // IMS area grouping (e.g. "Area I")
+  governorateId String?      @map("governorate_id") @db.Uuid
+  governorate   Governorate? @relation(fields: [governorateId], references: [id], onDelete: SetNull)
+
+  subBricks SubBrick[]
+  doctors   Doctor[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([governorateId, nameEn])
+  @@index([area])
+  @@map("bricks")
+}
+
+// Section 5 / Step 5: 708 sub-bricks under the 148 IMS bricks
+model SubBrick {
+  id            String @id @default(uuid()) @db.Uuid
+  parentBrickId String @map("parent_brick_id") @db.Uuid
+  parentBrick   Brick  @relation(fields: [parentBrickId], references: [id], onDelete: Cascade)
+  nameEn        String @map("name_en")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([parentBrickId, nameEn])
+  @@map("sub_bricks")
+}
+
+// ---------- doctors ----------
+
+model Doctor {
+  id             String         @id @default(uuid()) @db.Uuid
+  nameAr         String         @map("name_ar")
+  addressAr      String?        @map("address_ar")
+  specialty      String
+  class          DoctorClass
+  accountType    AccountType    @map("account_type")
+  accountSubtype AccountSubtype @map("account_subtype")
+  brickId        String?        @map("brick_id") @db.Uuid
+  brick          Brick?         @relation(fields: [brickId], references: [id], onDelete: SetNull)
+  governorateId  String?        @map("governorate_id") @db.Uuid
+  governorate    Governorate?   @relation(fields: [governorateId], references: [id], onDelete: SetNull)
+  clinicLat      Float?         @map("clinic_lat")
+  clinicLng      Float?         @map("clinic_lng")
+  status         DoctorStatus   @default(pending)
+  createdById    String?        @map("created_by") @db.Uuid
+  createdBy      User?          @relation("DoctorCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  repLists     RepDoctorList[]
+  planItems    PlanItem[]
+  visits       Visit[]
+  listRequests ListChangeRequest[]
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@index([brickId])
+  @@index([governorateId])
+  @@index([status])
+  @@map("doctors")
+}
+
+model RepDoctorList {
+  id       String              @id @default(uuid()) @db.Uuid
+  repId    String              @map("rep_id") @db.Uuid
+  rep      User                @relation(fields: [repId], references: [id], onDelete: Cascade)
+  doctorId String              @map("doctor_id") @db.Uuid
+  doctor   Doctor              @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  addedAt  DateTime            @default(now()) @map("added_at")
+  status   RepDoctorListStatus @default(active)
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@unique([repId, doctorId])
+  @@index([status])
+  @@map("rep_doctor_list")
+}
+
+// ---------- products / detail aids ----------
+
+// An uploaded detail-aid deck (PDF) and its pre-split per-page WebP renders.
+// One deck can be shared by several products, each mapped to a page range.
+model DetailAid {
+  id        String          @id @default(uuid()) @db.Uuid
+  name      String
+  fileUrl   String?         @map("file_url")
+  status    DetailAidStatus @default(none)
+  pageCount Int?            @map("page_count")
+  error     String?
+
+  pages    DetailAidPage[]
+  products Product[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("detail_aids")
+}
+
+model DetailAidPage {
+  id          String @id @default(uuid()) @db.Uuid
+  detailAidId String @map("detail_aid_id") @db.Uuid
+  page        Int // 1-based page number within the deck
+  imageKey    String @map("image_key") // S3 key of the rendered WebP
+  width       Int
+  height      Int
+
+  detailAid DetailAid @relation(fields: [detailAidId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([detailAidId, page])
+  @@index([detailAidId])
+  @@map("detail_aid_pages")
+}
+
+model Product {
+  id          String  @id @default(uuid()) @db.Uuid
+  name        String
+  totalSlides Int     @map("total_slides")
+  active      Boolean @default(true)
+
+  // A product details a contiguous page range [pageStart..pageEnd] (1-based,
+  // inclusive) of a shared DetailAid deck. Null until an aid+range is assigned.
+  detailAidId String?    @map("detail_aid_id") @db.Uuid
+  detailAid   DetailAid? @relation(fields: [detailAidId], references: [id], onDelete: SetNull)
+  pageStart   Int?       @map("page_start")
+  pageEnd     Int?       @map("page_end")
+
+  sessions Session[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([detailAidId])
+  @@map("products")
+}
+
+// ---------- planning ----------
+
+model WeeklyPlan {
+  id                       String           @id @default(uuid()) @db.Uuid
+  repId                    String           @map("rep_id") @db.Uuid
+  rep                      User             @relation("PlanRep", fields: [repId], references: [id], onDelete: Cascade)
+  isoWeek                  Int              @map("iso_week")
+  year                     Int
+  status                   WeeklyPlanStatus @default(draft)
+  submittedAt              DateTime?        @map("submitted_at")
+  approvedAt               DateTime?        @map("approved_at")
+  approvedById             String?          @map("approved_by") @db.Uuid
+  approvedBy               User?            @relation("PlanApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+  rejectReason             String?          @map("reject_reason")
+  missedApprovalNotifiedAt DateTime?        @map("missed_approval_notified_at")
+
+  items PlanItem[]
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@unique([repId, year, isoWeek])
+  @@index([status])
+  @@map("weekly_plans")
+}
+
+model PlanItem {
+  id         String     @id @default(uuid()) @db.Uuid
+  planId     String     @map("plan_id") @db.Uuid
+  plan       WeeklyPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  doctorId   String     @map("doctor_id") @db.Uuid
+  doctor     Doctor     @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  plannedDay Int        @map("planned_day") // 0=Sun .. 6=Sat (ISO-week local)
+
+  visits Visit[]
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@unique([planId, doctorId, plannedDay])
+  @@index([doctorId])
+  @@map("plan_items")
+}
+
+// ---------- visits / sessions ----------
+
+model Visit {
+  id          String      @id @default(uuid()) @db.Uuid
+  clientId    String?     @map("client_id") // client-generated UUID for offline-sync dedup (spec §2)
+  repId       String      @map("rep_id") @db.Uuid
+  rep         User        @relation(fields: [repId], references: [id], onDelete: Cascade)
+  doctorId    String      @map("doctor_id") @db.Uuid
+  doctor      Doctor      @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  planItemId  String?     @map("plan_item_id") @db.Uuid
+  planItem    PlanItem?   @relation(fields: [planItemId], references: [id], onDelete: SetNull)
+  accountType AccountType @map("account_type") // AM/PM snapshot at visit time
+
+  sessions Session[]
+
+  startedAtServer DateTime  @map("started_at_server")
+  endedAtServer   DateTime? @map("ended_at_server")
+  startedAtClient DateTime? @map("started_at_client")
+  endedAtClient   DateTime? @map("ended_at_client")
+
+  gpsLat          Float?  @map("gps_lat")
+  gpsLng          Float?  @map("gps_lng")
+  geofenceOk      Boolean @default(false) @map("geofence_ok")
+  isValid         Boolean @default(false) @map("is_valid")
+  validityReasons Json?   @map("validity_reasons")
+  flags           Json?
+
+  syncedAt DateTime? @map("synced_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([repId, clientId])
+  @@index([repId, startedAtServer])
+  @@index([doctorId, startedAtServer])
+  @@index([isValid])
+  @@map("visits")
+}
+
+model Session {
+  id                   String    @id @default(uuid()) @db.Uuid
+  clientId             String?   @map("client_id") // client-generated UUID for offline-sync dedup
+  visitId              String    @map("visit_id") @db.Uuid
+  visit                Visit     @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  productId            String    @map("product_id") @db.Uuid
+  product              Product   @relation(fields: [productId], references: [id], onDelete: Restrict)
+  startSlide           Int       @map("start_slide")
+  slidesSeen           Int       @map("slides_seen") // distinct count
+  maxSlide             Int       @map("max_slide")
+  durationSeconds      Int       @map("duration_seconds")
+  startLat             Float?    @map("start_lat")
+  startLng             Float?    @map("start_lng")
+  startedAtServer      DateTime? @map("started_at_server")
+  endedAtServer        DateTime? @map("ended_at_server")
+  slideEvents          Json      @map("slide_events") // [{ slide, ts }]
+  deviceInfo           Json?     @map("device_info")
+  mockLocationDetected Boolean   @default(false) @map("mock_location_detected")
+  clockDriftSeconds    Int       @default(0) @map("clock_drift_seconds")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([visitId, clientId])
+  @@index([visitId])
+  @@index([productId])
+  @@map("sessions")
+}
+
+// ---------- list changes (dual approval) ----------
+
+model ListChangeRequest {
+  id              String          @id @default(uuid()) @db.Uuid
+  repId           String          @map("rep_id") @db.Uuid
+  rep             User            @relation("ListReqRep", fields: [repId], references: [id], onDelete: Cascade)
+  doctorId        String?         @map("doctor_id") @db.Uuid
+  doctor          Doctor?         @relation(fields: [doctorId], references: [id], onDelete: SetNull)
+  type            ListChangeType
+  payload         Json? // full new-account details when type=create_account
+  stage           ListChangeStage @default(manager)
+  managerId       String?         @map("manager_id") @db.Uuid
+  manager         User?           @relation("ListReqManager", fields: [managerId], references: [id], onDelete: SetNull)
+  managerActionAt DateTime?       @map("manager_action_at")
+  adminId         String?         @map("admin_id") @db.Uuid
+  admin           User?           @relation("ListReqAdmin", fields: [adminId], references: [id], onDelete: SetNull)
+  adminActionAt   DateTime?       @map("admin_action_at")
+  rejectReason    String?         @map("reject_reason")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@index([repId])
+  @@index([stage])
+  @@map("list_change_requests")
+}
+
+// ---------- list locks ----------
+
+model ListLock {
+  id          String    @id @default(uuid()) @db.Uuid
+  scope       LockScope
+  repId       String?   @map("rep_id") @db.Uuid
+  rep         User?     @relation("LockRep", fields: [repId], references: [id], onDelete: Cascade)
+  opensAt     DateTime  @map("opens_at")
+  closesAt    DateTime  @map("closes_at")
+  reason      String?
+  grantedById String?   @map("granted_by_admin") @db.Uuid
+  grantedBy   User?     @relation("LockGrantedBy", fields: [grantedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([scope])
+  @@index([repId])
+  @@map("list_locks")
+}
+
+// ---------- precomputed KPIs ----------
+
+model KpiSnapshot {
+  id           String @id @default(uuid()) @db.Uuid
+  repId        String @map("rep_id") @db.Uuid
+  rep          User   @relation(fields: [repId], references: [id], onDelete: Cascade)
+  period       String // e.g. "2026-05" or "2026-Q2"
+  coverageAch  Float  @map("coverage_ach")
+  callRateAch  Float  @map("call_rate_ach")
+  frequencyAch Float  @map("frequency_ach")
+  crmScore     Float  @map("crm_score")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([repId, period])
+  @@map("kpi_snapshots")
+}
+
+// ---------- audit log (M10 hardening) ----------
+
+model AuditLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  actorId    String?  @map("actor_id") @db.Uuid
+  action     String
+  targetType String?  @map("target_type")
+  targetId   String?  @map("target_id")
+  meta       Json?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([actorId])
+  @@index([action])
+  @@index([targetType, targetId])
+  @@map("audit_logs")
+}
+
+// ---------- notifications ----------
+
+model Notification {
+  id     String    @id @default(uuid()) @db.Uuid
+  userId String    @map("user_id") @db.Uuid
+  user   User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type   String
+  body   String
+  readAt DateTime? @map("read_at")
+  meta   Json?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([userId, readAt])
+  @@map("notifications")
+}
