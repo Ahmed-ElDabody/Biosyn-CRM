@@ -7,7 +7,7 @@
  * sub-brick / governorate). AM accounts whose subtype is only the
  * general_hospital fallback are flagged in a "Review Note" column.
  *
- * Run from backend/: `npx tsx scripts/export-doctors.ts`
+ * Run from backend/: `npm run export:doctors`
  */
 import * as path from "path";
 import * as XLSX from "xlsx";

@@ -42,6 +42,7 @@ npm run import:employees    # parses Employees.xlsx -> users (33 employees)
 npm run import:territories  # parses "Standard Structure.xlsx" -> sub_bricks (expects 708)
 npm run import:doctors      # parses Master_List_clean.xlsx -> doctors (master accounts, ~2217)
                             #   run AFTER import:bricks + import:territories (Division/Brick resolve by name)
+npm run export:doctors      # dumps doctors -> Master_List_final_review.xlsx (review export, gitignored)
 ```
 
 ## Web (Next.js)
