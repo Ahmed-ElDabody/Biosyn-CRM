@@ -26,6 +26,7 @@
     "import:doctors": "tsx scripts/import-doctors.ts",
     "import:rep-lists": "tsx scripts/import-rep-lists.ts",
     "export:doctors": "tsx scripts/export-doctors.ts",
+    "export:rep-lists": "tsx scripts/export-rep-lists.ts",
     "import:products": "tsx scripts/import-products.ts",
     "seed:governorates": "tsx scripts/seed-governorates.ts",
     "user:setpw": "tsx scripts/set-user-password.ts"

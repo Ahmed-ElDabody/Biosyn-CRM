@@ -45,6 +45,7 @@ npm run import:doctors      # parses Master_List_clean.xlsx -> doctors (master a
 npm run import:rep-lists            # derive rep_doctor_list from each rep's Region (dry run)
 npm run import:rep-lists -- --apply # ... and persist (run AFTER import:employees + import:doctors)
 npm run export:doctors      # dumps doctors -> Master_List_final_review.xlsx (review export, gitignored)
+npm run export:rep-lists    # dumps rep_doctor_list -> Rep_Account_Mapping_review.xlsx (gitignored)
 ```
 
 ## Web (Next.js)

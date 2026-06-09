@@ -58,8 +58,9 @@ coverage/
 .eslintcache
 .npmrc.local
 
-# Generated review exports (regenerate via backend/scripts/export-doctors.ts)
+# Generated review exports (regenerate via backend/scripts/export-*.ts)
 Master_List_final_review.xlsx
+Rep_Account_Mapping_review.xlsx
 
 # Claude Code local state
 .claude/settings.local.json
