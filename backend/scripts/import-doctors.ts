@@ -64,10 +64,20 @@ const DIVISION_BRICK_OVERRIDES: Record<string, string> = {
 // Derive account_subtype (Section 6) from account type, speciality and Arabic
 // name keywords. The Master List has no subtype column; the institution kind is
 // encoded in the account name (حميات=fever, جامعي=university, تعليمي=teaching,
-// تأمين=health insurance, صدر=chest, مركز طبي=medical center). AM falls back to
-// general_hospital; PM is a private hospital when the name says مستشفى, else a
-// private clinic. Note: bare مركزي ("central", e.g. مستشفى أجا المركزي) is a
-// general hospital, so only "مركز طبي"/"مجمع طبي" map to medical_center.
+// تأمين=health insurance, صدر=chest). AM falls back to general_hospital; PM is a
+// private hospital when the name says مستشفى, else a private clinic.
+//
+// Contracts (Section 6): corporate/utility clinics — electricity, gas,
+// petroleum, telecom, banks, contractors.
+const CONTRACTS_RE =
+  /كهربا|كهرباء|غاز|جاز|بترو|تعاقد|مقاولين|الطاقة|الذري|شرك[ةه]|بنك|اسكان|تعمير|صيانكو|جهاز مدين/;
+// Medical centers, dispensaries, health units and maternal/child-care centers.
+// مركز(?![يى]) excludes مركزي / المركزى ("central", e.g. مستشفى أجا المركزي,
+// مستشفى سمنود المركزى) — those are general hospitals, not medical centers.
+// Both ي (yaa) and ى (alef maksura) spellings of the suffix are excluded.
+const MEDICAL_CENTER_RE =
+  /مركز طبي|مجمع طبي|المجمع الطبي|سنتر|مركز(?![يى])|مستوصف|وحد[ةه]\s*صح|رعاي[ةه]|صح[ةه]/;
+
 function deriveSubtype(
   nameAr: string,
   accountType: string,
@@ -78,13 +88,15 @@ function deriveSubtype(
       ? AccountSubtype.private_hospital
       : AccountSubtype.private_clinic;
   }
-  // AM — most specific institution kind first.
+  // AM — most specific institution kind first; corporate "contracts" and
+  // medical centers before the general_hospital fallback.
   if (/تأمين|تامين/.test(nameAr)) return AccountSubtype.health_insurance;
   if (/جامع/.test(nameAr)) return AccountSubtype.university_hospital;
   if (/تعليم/.test(nameAr)) return AccountSubtype.teaching_hospital;
   if (/حميات/.test(nameAr)) return AccountSubtype.fever_hospital;
   if (/صدر/.test(nameAr) || specialty === "Pulmonology") return AccountSubtype.chest_hospital;
-  if (/مركز طبي|مجمع طبي|المجمع الطبي|سنتر/.test(nameAr)) return AccountSubtype.medical_center;
+  if (CONTRACTS_RE.test(nameAr)) return AccountSubtype.contracts;
+  if (MEDICAL_CENTER_RE.test(nameAr)) return AccountSubtype.medical_center;
   return AccountSubtype.general_hospital;
 }
 
