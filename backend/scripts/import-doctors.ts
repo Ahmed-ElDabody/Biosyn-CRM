@@ -100,6 +100,21 @@ function deriveSubtype(
   return AccountSubtype.general_hospital;
 }
 
+// Explicit per-account subtype corrections the name-keyword heuristic can't make
+// on its own. Matched on name AND address so an ambiguous name doesn't misfire:
+// جنوب الوادي is South Valley Petroleum (a corporate "Contracts" clinic, per the
+// انبي/ENPPI address), not the New Valley region.
+const SUBTYPE_OVERRIDES: { nameAr: string; addressAr: string; subtype: AccountSubtype }[] = [
+  { nameAr: "جنوب الوادي", addressAr: "انبي", subtype: AccountSubtype.contracts },
+];
+
+function subtypeFor(nameAr: string, addressAr: string, accountType: string, specialty: string) {
+  const override = SUBTYPE_OVERRIDES.find(
+    (o) => o.nameAr === nameAr.trim() && o.addressAr === addressAr.trim(),
+  );
+  return override ? override.subtype : deriveSubtype(nameAr, accountType, specialty);
+}
+
 const EXTRA_SUBBRICKS: { nameEn: string; parentBrickNameEn: string }[] = [
   { nameEn: "The 5th Settlement", parentBrickNameEn: "Nasr City 2" },
   // Remaining Master-List sub-brick names absent from the 708 IMS set, each
@@ -312,7 +327,7 @@ async function main() {
         specialty: specialty ?? r.specialtyRaw,
         class: classVal as Prisma.DoctorCreateManyInput["class"],
         accountType: accountType as Prisma.DoctorCreateManyInput["accountType"],
-        accountSubtype: deriveSubtype(r.nameAr, accountType, specialty ?? r.specialtyRaw),
+        accountSubtype: subtypeFor(r.nameAr, r.addressAr, accountType, specialty ?? r.specialtyRaw),
         brickId: brick?.id ?? null,
         subBrickId,
         governorateId: brick?.governorateId ?? null,
