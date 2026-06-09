@@ -282,6 +282,38 @@ async function main() {
       });
     }
 
+    // --- Collapse exact-duplicate PM rows --------------------------------
+    // A private (PM) account with an identical name, address, specialty, class
+    // and location is the same single clinic, so repeated rows are data-entry
+    // duplicates and are collapsed to one. AM institutions (fever / central /
+    // university hospitals) may legitimately appear more than once for distinct
+    // clinics within the same building and are deliberately left untouched.
+    const pmSeen = new Set<string>();
+    const removedDupes: string[] = [];
+    const dedupedData: Prisma.DoctorCreateManyInput[] = [];
+    for (const d of data) {
+      if (d.accountType === "PM") {
+        const sig = [
+          d.nameAr,
+          d.addressAr ?? "",
+          d.specialty,
+          d.class,
+          d.brickId ?? "",
+          d.subBrickId ?? "",
+        ].join("|");
+        if (pmSeen.has(sig)) {
+          removedDupes.push(`${d.nameAr} @ ${d.addressAr ?? "(no address)"}`);
+          continue;
+        }
+        pmSeen.add(sig);
+      }
+      dedupedData.push(d);
+    }
+    if (removedDupes.length) {
+      console.log(`\nCollapsed ${removedDupes.length} exact-duplicate PM row(s):`);
+      for (const r of removedDupes) console.log(`  - ${r}`);
+    }
+
     // --- Safety guard: never clobber doctors with real field activity ----
     const dependents = await prisma.doctor.findMany({
       where: {
@@ -308,8 +340,8 @@ async function main() {
 
     const BATCH = 500;
     let inserted = 0;
-    for (let i = 0; i < data.length; i += BATCH) {
-      const res = await prisma.doctor.createMany({ data: data.slice(i, i + BATCH) });
+    for (let i = 0; i < dedupedData.length; i += BATCH) {
+      const res = await prisma.doctor.createMany({ data: dedupedData.slice(i, i + BATCH) });
       inserted += res.count;
     }
 
@@ -321,18 +353,18 @@ async function main() {
       console.log(`  ${label}: ${[...m.entries()].map(([k, v]) => `${k}=${v}`).join(", ")}`);
     const countBy = (key: (d: Prisma.DoctorCreateManyInput) => string) => {
       const m = new Map<string, number>();
-      for (const d of data) m.set(key(d), (m.get(key(d)) ?? 0) + 1);
+      for (const d of dedupedData) m.set(key(d), (m.get(key(d)) ?? 0) + 1);
       return m;
     };
     tally("by class", countBy((d) => String(d.class)));
     tally("by type", countBy((d) => String(d.accountType)));
     tally("by specialty", countBy((d) => String(d.specialty)));
 
-    const linkedBrick = data.filter((d) => d.brickId).length;
-    const linkedSub = data.filter((d) => d.subBrickId).length;
+    const linkedBrick = dedupedData.filter((d) => d.brickId).length;
+    const linkedSub = dedupedData.filter((d) => d.subBrickId).length;
     console.log(
-      `\nLinked to a brick (Division):   ${linkedBrick}/${data.length}` +
-        `\nLinked to a sub-brick (Brick):  ${linkedSub}/${data.length}`,
+      `\nLinked to a brick (Division):   ${linkedBrick}/${dedupedData.length}` +
+        `\nLinked to a sub-brick (Brick):  ${linkedSub}/${dedupedData.length}`,
     );
 
     const dumpUnresolved = (label: string, m: Map<string, number>) => {
