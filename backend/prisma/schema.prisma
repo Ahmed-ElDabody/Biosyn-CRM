@@ -178,6 +178,8 @@ model SubBrick {
   parentBrick   Brick  @relation(fields: [parentBrickId], references: [id], onDelete: Cascade)
   nameEn        String @map("name_en")
 
+  doctors Doctor[]
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -193,12 +195,19 @@ model Doctor {
   addressAr      String?        @map("address_ar")
   specialty      String
   class          DoctorClass
-  accountType    AccountType    @map("account_type")
-  accountSubtype AccountSubtype @map("account_subtype")
-  brickId        String?        @map("brick_id") @db.Uuid
-  brick          Brick?         @relation(fields: [brickId], references: [id], onDelete: SetNull)
-  governorateId  String?        @map("governorate_id") @db.Uuid
-  governorate    Governorate?   @relation(fields: [governorateId], references: [id], onDelete: SetNull)
+  accountType    AccountType     @map("account_type")
+  // Section 6 institution/clinic subtype. Nullable: the Master List carries
+  // only AM/PM, so bulk-imported accounts start with no subtype and an admin
+  // fills it in later.
+  accountSubtype AccountSubtype? @map("account_subtype")
+  brickId        String?         @map("brick_id") @db.Uuid
+  brick          Brick?          @relation(fields: [brickId], references: [id], onDelete: SetNull)
+  // The Master List's granular "Brick" column is the 708 sub-brick level;
+  // "Division" maps to the 148-brick level above. Nullable when unresolved.
+  subBrickId     String?         @map("sub_brick_id") @db.Uuid
+  subBrick       SubBrick?       @relation(fields: [subBrickId], references: [id], onDelete: SetNull)
+  governorateId  String?         @map("governorate_id") @db.Uuid
+  governorate    Governorate?    @relation(fields: [governorateId], references: [id], onDelete: SetNull)
   clinicLat      Float?         @map("clinic_lat")
   clinicLng      Float?         @map("clinic_lng")
   status         DoctorStatus   @default(pending)
@@ -215,6 +224,7 @@ model Doctor {
   deletedAt DateTime? @map("deleted_at")
 
   @@index([brickId])
+  @@index([subBrickId])
   @@index([governorateId])
   @@index([status])
   @@map("doctors")

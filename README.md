@@ -40,6 +40,8 @@ Import scripts (run after `docker compose up -d` and after applying the migratio
 npm run import:bricks       # parses Updated_IMS_148_Bricks.xlsx -> bricks (expects 148)
 npm run import:employees    # parses Employees.xlsx -> users (33 employees)
 npm run import:territories  # parses "Standard Structure.xlsx" -> sub_bricks (expects 708)
+npm run import:doctors      # parses Master_List_clean.xlsx -> doctors (master accounts, ~2217)
+                            #   run AFTER import:bricks + import:territories (Division/Brick resolve by name)
 ```
 
 ## Web (Next.js)
