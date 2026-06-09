@@ -36,7 +36,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as XLSX from "xlsx";
-import { Prisma, PrismaClient } from "@prisma/client";
+import { AccountSubtype, Prisma, PrismaClient } from "@prisma/client";
 
 const SOURCE_FILE = path.resolve(__dirname, "..", "..", "Master_List_clean.xlsx");
 const SHEET = "Master List";
@@ -61,6 +61,33 @@ const DIVISION_BRICK_OVERRIDES: Record<string, string> = {
 // 708 IMS sub-brick set, created under their parent brick so the affected
 // accounts link at both the brick and sub-brick level. Keyed by parent brick
 // name_en.
+// Derive account_subtype (Section 6) from account type, speciality and Arabic
+// name keywords. The Master List has no subtype column; the institution kind is
+// encoded in the account name (حميات=fever, جامعي=university, تعليمي=teaching,
+// تأمين=health insurance, صدر=chest, مركز طبي=medical center). AM falls back to
+// general_hospital; PM is a private hospital when the name says مستشفى, else a
+// private clinic. Note: bare مركزي ("central", e.g. مستشفى أجا المركزي) is a
+// general hospital, so only "مركز طبي"/"مجمع طبي" map to medical_center.
+function deriveSubtype(
+  nameAr: string,
+  accountType: string,
+  specialty: string,
+): AccountSubtype {
+  if (accountType === "PM") {
+    return /مستشفى|مستشفي/.test(nameAr)
+      ? AccountSubtype.private_hospital
+      : AccountSubtype.private_clinic;
+  }
+  // AM — most specific institution kind first.
+  if (/تأمين|تامين/.test(nameAr)) return AccountSubtype.health_insurance;
+  if (/جامع/.test(nameAr)) return AccountSubtype.university_hospital;
+  if (/تعليم/.test(nameAr)) return AccountSubtype.teaching_hospital;
+  if (/حميات/.test(nameAr)) return AccountSubtype.fever_hospital;
+  if (/صدر/.test(nameAr) || specialty === "Pulmonology") return AccountSubtype.chest_hospital;
+  if (/مركز طبي|مجمع طبي|المجمع الطبي|سنتر/.test(nameAr)) return AccountSubtype.medical_center;
+  return AccountSubtype.general_hospital;
+}
+
 const EXTRA_SUBBRICKS: { nameEn: string; parentBrickNameEn: string }[] = [
   { nameEn: "The 5th Settlement", parentBrickNameEn: "Nasr City 2" },
   // Remaining Master-List sub-brick names absent from the 708 IMS set, each
@@ -273,7 +300,7 @@ async function main() {
         specialty: specialty ?? r.specialtyRaw,
         class: classVal as Prisma.DoctorCreateManyInput["class"],
         accountType: accountType as Prisma.DoctorCreateManyInput["accountType"],
-        accountSubtype: null,
+        accountSubtype: deriveSubtype(r.nameAr, accountType, specialty ?? r.specialtyRaw),
         brickId: brick?.id ?? null,
         subBrickId,
         governorateId: brick?.governorateId ?? null,
@@ -359,6 +386,7 @@ async function main() {
     tally("by class", countBy((d) => String(d.class)));
     tally("by type", countBy((d) => String(d.accountType)));
     tally("by specialty", countBy((d) => String(d.specialty)));
+    tally("by subtype", countBy((d) => String(d.accountSubtype)));
 
     const linkedBrick = dedupedData.filter((d) => d.brickId).length;
     const linkedSub = dedupedData.filter((d) => d.subBrickId).length;
