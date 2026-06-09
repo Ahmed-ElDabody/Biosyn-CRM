@@ -58,6 +58,9 @@ coverage/
 .eslintcache
 .npmrc.local
 
+# Generated review exports (regenerate via backend/scripts/export-doctors.ts)
+Master_List_final_review.xlsx
+
 # Claude Code local state
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
