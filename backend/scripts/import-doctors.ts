@@ -49,6 +49,22 @@ const SPECIALTY_MAP: Record<string, string> = {
   GP: "General Practice",
 };
 
+// Divisions with no name match in the 148 IMS bricks, mapped explicitly by the
+// business. Keyed by canonicalized division name -> exact brick name_en.
+// "New Cairo" (The 5th Settlement / Tagamoa) is administered as part of the
+// Nasr City 2 territory.
+const DIVISION_BRICK_OVERRIDES: Record<string, string> = {
+  "new cairo": "Nasr City 2",
+};
+
+// Sub-bricks present in the Master List's "Brick" column but absent from the
+// 708 IMS sub-brick set, created under their parent brick so the affected
+// accounts link at both the brick and sub-brick level. Keyed by parent brick
+// name_en.
+const EXTRA_SUBBRICKS: { nameEn: string; parentBrickNameEn: string }[] = [
+  { nameEn: "The 5th Settlement", parentBrickNameEn: "Nasr City 2" },
+];
+
 interface RawRow {
   nameAr: string;
   addressAr: string;
@@ -161,6 +177,8 @@ async function main() {
     }
     const resolveBrick = (division: string) => {
       const key = canonicalize(division);
+      const override = DIVISION_BRICK_OVERRIDES[key];
+      if (override) return brickByCanonical.get(canonicalize(override)) ?? null;
       // Solo-brick series are stored with a " 1" suffix on the brick side.
       return (
         brickByCanonical.get(key) ??
@@ -170,6 +188,24 @@ async function main() {
         null
       );
     };
+
+    // Seed Master-List-only sub-bricks under their parent brick before building
+    // the sub-brick indexes, so the affected accounts resolve at both levels.
+    for (const ex of EXTRA_SUBBRICKS) {
+      const parent = brickByCanonical.get(canonicalize(ex.parentBrickNameEn));
+      if (!parent) {
+        console.warn(
+          `EXTRA_SUBBRICKS: parent brick "${ex.parentBrickNameEn}" not found; ` +
+            `skipping sub-brick "${ex.nameEn}".`,
+        );
+        continue;
+      }
+      await prisma.subBrick.upsert({
+        where: { parentBrickId_nameEn: { parentBrickId: parent.id, nameEn: ex.nameEn } },
+        update: {},
+        create: { parentBrickId: parent.id, nameEn: ex.nameEn },
+      });
+    }
 
     const subBricks = await prisma.subBrick.findMany({
       select: { id: true, nameEn: true, parentBrickId: true },
