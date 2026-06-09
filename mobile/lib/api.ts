@@ -88,3 +88,64 @@ export async function apiGet<T = unknown>(path: string): Promise<T | null> {
   if (!res.ok) throw new ApiError(res.status, `GET ${path} failed`);
   return res.json() as Promise<T>;
 }
+
+// ---- Rep doctor list (GET /me/doctors) ------------------------------------
+
+export type DoctorClass = "A" | "B" | "C";
+export type AccountType = "AM" | "PM";
+export type FrequencyState = "todo" | "in_progress" | "done" | "over";
+
+export interface DoctorFrequency {
+  doctorId: string;
+  class: DoctorClass;
+  target: number;
+  actual: number;
+  remaining: number;
+  overBy: number;
+  progressPct: number; // 0..100+ (uncapped — over-achievement allowed)
+  state: FrequencyState;
+}
+
+export interface MeDoctor {
+  id: string;
+  nameAr: string;
+  addressAr: string | null;
+  specialty: string;
+  class: DoctorClass;
+  accountType: AccountType;
+  accountSubtype: string | null;
+}
+
+export interface MeDoctorListItem {
+  listEntryId: string;
+  listStatus: "active" | "pending_add" | "pending_delete";
+  addedAt: string;
+  doctor: MeDoctor;
+  frequency: DoctorFrequency;
+}
+
+export interface Paginated<T> {
+  items: T[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export interface ListMyDoctorsParams {
+  class?: DoctorClass;
+  accountType?: AccountType;
+  q?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+export function listMyDoctors(
+  params: ListMyDoctorsParams = {},
+): Promise<Paginated<MeDoctorListItem> | null> {
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== null && v !== "") qs.set(k, String(v));
+  }
+  const query = qs.toString();
+  return apiGet<Paginated<MeDoctorListItem>>(`/me/doctors${query ? `?${query}` : ""}`);
+}
