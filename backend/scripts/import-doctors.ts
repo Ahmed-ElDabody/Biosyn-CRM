@@ -100,6 +100,25 @@ function deriveSubtype(
   return AccountSubtype.general_hospital;
 }
 
+// Collapse internal/edge whitespace for tolerant name/address matching.
+const normWs = (s: string) => s.replace(/\s+/g, " ").trim();
+
+// Per-account account_type corrections. عبد القادر فهمي is an individual private
+// pediatrician (PM), not an AM institution: the four other "فهمي" accounts are
+// all PM private_clinic, the name is a full personal name, and the address is a
+// landmark ("near the Administrative Control Authority"), not an institution.
+// Re-typing to PM also makes deriveSubtype yield private_clinic.
+const TYPE_OVERRIDES: { nameAr: string; addressAr: string; accountType: "AM" | "PM" }[] = [
+  { nameAr: "عبد القادر فهمي", addressAr: "بالقرب من الرقابه الاداريه", accountType: "PM" },
+];
+
+function typeFor(nameAr: string, addressAr: string, rawType: string) {
+  const override = TYPE_OVERRIDES.find(
+    (o) => normWs(o.nameAr) === normWs(nameAr) && normWs(o.addressAr) === normWs(addressAr),
+  );
+  return override ? override.accountType : rawType;
+}
+
 // Explicit per-account subtype corrections the name-keyword heuristic can't make
 // on its own. Matched on name AND address (whitespace-normalized) so an
 // ambiguous name doesn't misfire.
@@ -124,9 +143,8 @@ const SUBTYPE_OVERRIDES: { nameAr: string; addressAr: string; subtype: AccountSu
 ];
 
 function subtypeFor(nameAr: string, addressAr: string, accountType: string, specialty: string) {
-  const nws = (s: string) => s.replace(/\s+/g, " ").trim();
   const override = SUBTYPE_OVERRIDES.find(
-    (o) => nws(o.nameAr) === nws(nameAr) && nws(o.addressAr) === nws(addressAr),
+    (o) => normWs(o.nameAr) === normWs(nameAr) && normWs(o.addressAr) === normWs(addressAr),
   );
   return override ? override.subtype : deriveSubtype(nameAr, accountType, specialty);
 }
@@ -335,7 +353,7 @@ async function main() {
       if (!specialty) bump(unmappedSpecialties, r.specialtyRaw);
 
       const classVal = r.classRaw.toUpperCase();
-      const accountType = r.accountTypeRaw.toUpperCase();
+      const accountType = typeFor(r.nameAr, r.addressAr, r.accountTypeRaw.toUpperCase());
 
       data.push({
         nameAr: r.nameAr,
