@@ -101,16 +101,32 @@ function deriveSubtype(
 }
 
 // Explicit per-account subtype corrections the name-keyword heuristic can't make
-// on its own. Matched on name AND address so an ambiguous name doesn't misfire:
-// جنوب الوادي is South Valley Petroleum (a corporate "Contracts" clinic, per the
-// انبي/ENPPI address), not the New Valley region.
+// on its own. Matched on name AND address (whitespace-normalized) so an
+// ambiguous name doesn't misfire.
 const SUBTYPE_OVERRIDES: { nameAr: string; addressAr: string; subtype: AccountSubtype }[] = [
+  // South Valley Petroleum corporate clinic (انبي/ENPPI address), not the New
+  // Valley region.
   { nameAr: "جنوب الوادي", addressAr: "انبي", subtype: AccountSubtype.contracts },
+  // Reviewed AM accounts that are clinics / district health units / day-surgery /
+  // nursery centers rather than hospitals — moved off the general_hospital default.
+  { nameAr: "ENT clinics", addressAr: "حسن المأمون", subtype: AccountSubtype.medical_center },
+  {
+    nameAr: "اطفال مطروك",
+    addressAr: "مطروح، بجوار مجلس مدينه مطروح ش المحطه",
+    subtype: AccountSubtype.medical_center,
+  },
+  { nameAr: "العصافرة", addressAr: "كيلو ٢١", subtype: AccountSubtype.medical_center },
+  { nameAr: "جراحات اليوم الواحد اطفال", addressAr: "Marg", subtype: AccountSubtype.medical_center },
+  { nameAr: "جراحات اليوم الواحد انف واذن", addressAr: "Marg", subtype: AccountSubtype.medical_center },
+  { nameAr: "حضانة الاشراف", addressAr: "الخانكة", subtype: AccountSubtype.medical_center },
+  { nameAr: "فيكتوريا", addressAr: "الجلاء", subtype: AccountSubtype.medical_center },
+  { nameAr: "لوران", addressAr: "لوران", subtype: AccountSubtype.medical_center },
 ];
 
 function subtypeFor(nameAr: string, addressAr: string, accountType: string, specialty: string) {
+  const nws = (s: string) => s.replace(/\s+/g, " ").trim();
   const override = SUBTYPE_OVERRIDES.find(
-    (o) => o.nameAr === nameAr.trim() && o.addressAr === addressAr.trim(),
+    (o) => nws(o.nameAr) === nws(nameAr) && nws(o.addressAr) === nws(addressAr),
   );
   return override ? override.subtype : deriveSubtype(nameAr, accountType, specialty);
 }
