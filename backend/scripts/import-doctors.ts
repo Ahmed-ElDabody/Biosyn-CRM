@@ -63,6 +63,21 @@ const DIVISION_BRICK_OVERRIDES: Record<string, string> = {
 // name_en.
 const EXTRA_SUBBRICKS: { nameEn: string; parentBrickNameEn: string }[] = [
   { nameEn: "The 5th Settlement", parentBrickNameEn: "Nasr City 2" },
+  // Remaining Master-List sub-brick names absent from the 708 IMS set, each
+  // resolving unambiguously to a single parent brick (Nasr City / East Cairo /
+  // Heliopolis area).
+  { nameEn: "Abbas al-Aqqad", parentBrickNameEn: "Nasr City 2" },
+  { nameEn: "Makram Ebeid", parentBrickNameEn: "Nasr City 2" },
+  { nameEn: "Mustafa al-Nahhas", parentBrickNameEn: "Nasr City 2" },
+  { nameEn: "Al Hay Al Asher", parentBrickNameEn: "Nasr City 1" },
+  { nameEn: "Al Hay al Sabea", parentBrickNameEn: "Nasr City 1" },
+  { nameEn: "Al Hayy Ath Thamin", parentBrickNameEn: "Nasr City 1" },
+  { nameEn: "El Tayaran St", parentBrickNameEn: "Nasr City 1" },
+  { nameEn: "Tabbah", parentBrickNameEn: "Nasr City 1" },
+  { nameEn: "Al Qalaj", parentBrickNameEn: "East Cairo 5" },
+  { nameEn: "Izbat an Nakhl", parentBrickNameEn: "East Cairo 4" },
+  { nameEn: "Salah Eldein", parentBrickNameEn: "Heliopolis 4" },
+  { nameEn: "sant fatima", parentBrickNameEn: "Heliopolis 4" },
 ];
 
 interface RawRow {
