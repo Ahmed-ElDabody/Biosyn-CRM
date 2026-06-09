@@ -1,9 +1,27 @@
 import Constants from "expo-constants";
+import { Platform } from "react-native";
 import * as SecureStore from "expo-secure-store";
 
 const ACCESS_KEY = "biosyn_access";
 const REFRESH_KEY = "biosyn_refresh";
 const USER_KEY = "biosyn_user";
+
+// expo-secure-store has no web implementation (the native module is an empty
+// stub on web), so on web we fall back to localStorage. Native keeps using the
+// OS secure store. Same async API either way.
+const store =
+  Platform.OS === "web"
+    ? {
+        getItemAsync: async (k: string) =>
+          typeof localStorage !== "undefined" ? localStorage.getItem(k) : null,
+        setItemAsync: async (k: string, v: string) => {
+          if (typeof localStorage !== "undefined") localStorage.setItem(k, v);
+        },
+        deleteItemAsync: async (k: string) => {
+          if (typeof localStorage !== "undefined") localStorage.removeItem(k);
+        },
+      }
+    : SecureStore;
 
 export const API_BASE: string =
   (Constants.expoConfig?.extra?.apiBase as string | undefined) ??
@@ -47,20 +65,20 @@ export async function login(email: string, password: string): Promise<AuthUser> 
     throw new ApiError(res.status, detail);
   }
   const data = (await res.json()) as LoginResponse;
-  await SecureStore.setItemAsync(ACCESS_KEY, data.accessToken);
-  await SecureStore.setItemAsync(REFRESH_KEY, data.refreshToken);
-  await SecureStore.setItemAsync(USER_KEY, JSON.stringify(data.user));
+  await store.setItemAsync(ACCESS_KEY, data.accessToken);
+  await store.setItemAsync(REFRESH_KEY, data.refreshToken);
+  await store.setItemAsync(USER_KEY, JSON.stringify(data.user));
   return data.user;
 }
 
 export async function logout(): Promise<void> {
-  await SecureStore.deleteItemAsync(ACCESS_KEY);
-  await SecureStore.deleteItemAsync(REFRESH_KEY);
-  await SecureStore.deleteItemAsync(USER_KEY);
+  await store.deleteItemAsync(ACCESS_KEY);
+  await store.deleteItemAsync(REFRESH_KEY);
+  await store.deleteItemAsync(USER_KEY);
 }
 
 export async function getStoredUser(): Promise<AuthUser | null> {
-  const raw = await SecureStore.getItemAsync(USER_KEY);
+  const raw = await store.getItemAsync(USER_KEY);
   if (!raw) return null;
   try {
     return JSON.parse(raw) as AuthUser;
@@ -70,7 +88,7 @@ export async function getStoredUser(): Promise<AuthUser | null> {
 }
 
 export async function getAccessToken(): Promise<string | null> {
-  return SecureStore.getItemAsync(ACCESS_KEY);
+  return store.getItemAsync(ACCESS_KEY);
 }
 
 /**
