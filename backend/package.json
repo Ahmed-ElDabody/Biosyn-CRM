@@ -24,6 +24,7 @@
     "import:employees": "tsx scripts/import-employees.ts",
     "import:territories": "tsx scripts/import-territories.ts",
     "import:doctors": "tsx scripts/import-doctors.ts",
+    "import:rep-lists": "tsx scripts/import-rep-lists.ts",
     "export:doctors": "tsx scripts/export-doctors.ts",
     "import:products": "tsx scripts/import-products.ts",
     "seed:governorates": "tsx scripts/seed-governorates.ts",

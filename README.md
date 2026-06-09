@@ -42,6 +42,8 @@ npm run import:employees    # parses Employees.xlsx -> users (33 employees)
 npm run import:territories  # parses "Standard Structure.xlsx" -> sub_bricks (expects 708)
 npm run import:doctors      # parses Master_List_clean.xlsx -> doctors (master accounts, ~2217)
                             #   run AFTER import:bricks + import:territories (Division/Brick resolve by name)
+npm run import:rep-lists            # derive rep_doctor_list from each rep's Region (dry run)
+npm run import:rep-lists -- --apply # ... and persist (run AFTER import:employees + import:doctors)
 npm run export:doctors      # dumps doctors -> Master_List_final_review.xlsx (review export, gitignored)
 ```
 
